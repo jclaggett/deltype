@@ -167,21 +167,31 @@
     (map (juxt get-iname get-sigs))
     (into {})))
 
-(defn parse-delegates [delegates mnames]
+(defn parse-delegates [delegates]
   (->>
     (partition-all 2 delegates)
     ;; expand all delegation 'types' into their interfaces and methods.
     (map (fn [[field iname]]
            [field (map (juxt get-iname get-sigs)
-                       (get-ifaces (lookup iname)))]))
+                       (get-ifaces (lookup iname)))]))))
+
+(defn get-inames
+  [delegates]
+  (for [[_ ifaces] delegates
+        [iname] ifaces]
+    iname))
+
+(defn inject-inames [impls inames]
+  (merge (zipmap inames (repeat [])) impls))
+
+(defn get-mspecs [delegates mnames]
+  (->> delegates
     ;; denormalize all needed delegate values into maps.
     (mapcat (fn [[field ifaces]]
               (for [[iname sigs] ifaces
                     [mname msig] sigs]
                 (assoc (select-keys msig [:ns :monoid :arglists])
-                       :field field
-                       :iname iname
-                       :mname mname))))
+                       :field field, :iname iname, :mname mname))))
     ;; keep only distinct method delegates.
     (reduce (fn [state v]
               (if (contains? (:mnames state) (:mname v))
@@ -192,10 +202,10 @@
             {:mnames mnames :output []})
     :output))
 
-(defn inject-methods [impls delegates tname fields]
+(defn inject-methods [impls method-specs tname fields]
   (->>
     ;; emit delegation methods for all delegate maps
-    (for [{:keys [field mname iname iface monoid arglists ns]} delegates
+    (for [{:keys [field mname iname iface monoid arglists ns]} method-specs
           arglist arglists]
       (let [args (map gensym arglist)
             call (if ns
@@ -243,9 +253,12 @@
   [tname fields & opts+specs]
   (let [[opts specs] (parse-opts opts+specs)
         mnames (parse-method-names specs)
-        delegates (parse-delegates (:delegate opts) mnames)
+        delegates (parse-delegates (:delegate opts))
         impls (parse-impls specs)
-        impls (inject-methods impls delegates tname fields)
+        impls (inject-inames impls (get-inames delegates))
+        impls (inject-methods impls
+                              (get-mspecs delegates mnames)
+                              tname fields)
         specs (mapcat #(cons (first %) (second %)) impls)
         opts (mapcat identity (dissoc opts :delegate))]
     `(deftype ~tname ~fields ~@opts ~@specs)))

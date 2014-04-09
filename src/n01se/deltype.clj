@@ -72,14 +72,21 @@
     (map first)
     set))
 
-(defn interface? [klass]
-  (.isInterface klass))
+(defn use-proto [^Class c]
+  (let [[_ a b] (re-find #"(.*)[.]([^.]*)$"  (.getName c))
+        proto (some-> (symbol a b) resolve deref)]
+    (if (= c (:on-interface proto))
+      proto
+      c)))
+
+(defn interface? [^Class c]
+  (.isInterface c))
 
 (defn get-ifaces [obj]
   (if (class? obj)
     (if (interface? obj)
-      (cons obj (supers obj))
-      (filter interface? (supers obj)))
+      (->> (supers obj) (cons obj) (map use-proto))
+      (->> (supers obj) (filter interface?) (map use-proto)))
     (when (map? obj) ;; assume it is a protocol
       [obj])))
 

@@ -102,12 +102,15 @@
               (update-in [mname :arglists] conj arglist)
               (assoc-in [mname :name] mname)))
           {}))
-      (->>
-        (:sigs obj)
-        (map-items (fn [k v]
-                     [(symbol (name k))
-                      (assoc v :arglists (map #(-> % rest vec rest)
-                                              (:arglists v)))]))))
+      (let [ns-str (-> obj :var .ns .toString)]
+        (->>
+          (:sigs obj)
+          (map-items (fn [k v]
+                       [(symbol (name k))
+                        (assoc v
+                               :ns ns-str
+                               :arglists (map #(-> % rest vec rest)
+                                              (:arglists v)))])))))
 
     ;; associate monoid status with methods
     (map-vals #(if (contains? % :monoid)
@@ -137,9 +140,11 @@
     ;; denormalize all needed delegate values into maps.
     (mapcat (fn [[field ifaces]]
               (for [[iname sigs] ifaces
-                    [mname {:keys [arglists monoid]}] sigs]
-                {:field field, :iname iname, :mname mname,
-                 :monoid monoid, :arglists arglists})))
+                    [mname msig] sigs]
+                (assoc (select-keys msig [:ns :monoid :arglists])
+                       :field field
+                       :iname iname
+                       :mname mname))))
     ;; keep only distinct method delegates.
     (reduce (fn [state v]
               (if (contains? (:mnames state) (:mname v))
@@ -153,10 +158,13 @@
 (defn inject-methods [impls delegates tname fields]
   (->>
     ;; emit delegation methods for all delegate maps
-    (for [{:keys [field mname iname monoid arglists]} delegates
+    (for [{:keys [field mname iname iface monoid arglists ns]} delegates
           arglist arglists]
       (let [args (map gensym arglist)
-            body `(~(symbol (str "." mname)) ~field ~@args)
+            call (if ns
+                   (symbol ns (str mname))
+                   (symbol (str "." mname)))
+            body `(~call ~field ~@args)
             body (if monoid
                    `(~(symbol (str tname ".")) ~@(replace {field body}
                                                           fields))

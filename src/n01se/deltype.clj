@@ -58,7 +58,37 @@
 (defmethod monoid? clojure.lang.Counted
   [_ mname] (contains? '#{} mname))
 
+(defmethod monoid? clojure.lang.ILookup
+  [_ mname] (contains? '#{} mname))
+
+(defmethod monoid? clojure.lang.Associative
+  [_ mname] (contains? '#{assoc} mname))
+
 (defmethod monoid? clojure.lang.IPersistentMap
+  [_ mname] (contains? '#{assoc assocEx} mname))
+
+(defmethod monoid? java.lang.Iterable
+  [_ mname] (contains? '#{} mname))
+
+(defmethod monoid? java.util.concurrent.Callable
+  [_ mname] (contains? '#{} mname))
+
+(defmethod monoid? java.util.Map
+  [_ mname] (contains? '#{} mname))
+
+(defmethod monoid? clojure.lang.IHashEq
+  [_ mname] (contains? '#{} mname))
+
+(defmethod monoid? clojure.lang.IMeta
+  [_ mname] (contains? '#{} mname))
+
+(defmethod monoid? clojure.lang.IEditableCollection
+  [_ mname] (contains? '#{} mname))
+
+(defmethod monoid? java.lang.Runnable
+  [_ mname] (contains? '#{} mname))
+
+(defmethod monoid? clojure.lang.IFn
   [_ mname] (contains? '#{} mname))
 
 ;; Parsing code for the deltype macro

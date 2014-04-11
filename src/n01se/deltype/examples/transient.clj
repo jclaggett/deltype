@@ -17,6 +17,8 @@
     empty
     (assoc :a 1)
     (doto (-> class prn)) ;=> NewMap
+    (into {:b 2 :c 3})
+    (doto (-> class prn)) ;=> ArrayMap
     )
 
 "Solution 1: Unify peristent and transient methods into the new type.
@@ -37,5 +39,7 @@
 (-> (NewMap. {:q "initial-value"})
     empty
     (assoc :a 1)
+    (doto (-> class prn)) ;=> NewMap
+    (into {:b 2 :c 3})
     (doto (-> class prn)) ;=> NewMap
     )

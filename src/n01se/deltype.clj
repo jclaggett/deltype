@@ -85,10 +85,19 @@
 (defmethod monoid? clojure.lang.IEditableCollection
   [_ mname] (contains? '#{} mname))
 
-(defmethod monoid? java.lang.Runnable
+(defmethod monoid? clojure.lang.IFn
   [_ mname] (contains? '#{} mname))
 
-(defmethod monoid? clojure.lang.IFn
+(defmethod monoid? clojure.lang.ITransientMap
+  [_ mname] (contains? '#{assoc} mname))
+
+(defmethod monoid? clojure.lang.ITransientCollection
+  [_ mname] (contains? '#{conj} mname))
+
+(defmethod monoid? clojure.lang.ITransientAssociative
+  [_ mname] (contains? '#{assoc} mname))
+
+(defmethod monoid? java.lang.Runnable
   [_ mname] (contains? '#{} mname))
 
 ;; Parsing code for the deltype macro

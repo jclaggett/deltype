@@ -50,46 +50,46 @@
   [_ mname] (contains? '#{cons empty} mname))
 
 (defmethod monoid? clojure.lang.Seqable
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 (defmethod monoid? clojure.lang.IObj
   [_ mname] (contains? '#{withMeta} mname))
 
 (defmethod monoid? clojure.lang.Counted
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 (defmethod monoid? clojure.lang.ILookup
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 (defmethod monoid? clojure.lang.Associative
   [_ mname] (contains? '#{assoc} mname))
 
 (defmethod monoid? clojure.lang.IPersistentMap
-  [_ mname] (contains? '#{assoc assocEx} mname))
+  [_ mname] (contains? '#{assoc assocEx without} mname))
 
 (defmethod monoid? java.lang.Iterable
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 (defmethod monoid? java.util.concurrent.Callable
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 (defmethod monoid? java.util.Map
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 (defmethod monoid? clojure.lang.IHashEq
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 (defmethod monoid? clojure.lang.IMeta
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 (defmethod monoid? clojure.lang.IEditableCollection
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 (defmethod monoid? clojure.lang.IFn
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 (defmethod monoid? clojure.lang.ITransientMap
-  [_ mname] (contains? '#{assoc} mname))
+  [_ mname] (contains? '#{assoc without} mname))
 
 (defmethod monoid? clojure.lang.ITransientCollection
   [_ mname] (contains? '#{conj} mname))
@@ -98,7 +98,7 @@
   [_ mname] (contains? '#{assoc} mname))
 
 (defmethod monoid? java.lang.Runnable
-  [_ mname] (contains? '#{} mname))
+  [_ mname] false)
 
 ;; Parsing code for the deltype macro
 

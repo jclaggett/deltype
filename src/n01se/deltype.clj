@@ -131,24 +131,24 @@
 
 (defn get-iname [obj]
   (if (class? obj)
-    (symbol (.getName obj))
+    (symbol (.getName ^Class obj))
     (when (map? obj)
-      (.sym (:var obj)))))
+      (.sym ^clojure.lang.Var (:var obj)))))
 
 (defn get-sigs [obj]
   (->>
     (if (class? obj)
       (->>
-        (.getDeclaredMethods obj)
-        (map (juxt #(-> % .getName symbol)
-                   #(-> % .getParameterTypes count (take letters) vec)))
+        (.getDeclaredMethods ^Class obj)
+        (map (juxt #(-> ^java.lang.reflect.Method % .getName symbol)
+                   #(-> ^java.lang.reflect.Method % .getParameterTypes count (take letters) vec)))
         (reduce
           (fn [m [mname arglist]]
             (-> m
               (update-in [mname :arglists] conj arglist)
               (assoc-in [mname :name] mname)))
           {}))
-      (let [ns-str (-> obj :var .ns .toString)]
+      (let [ns-str (-> obj ^clojure.lang.Var (:var) .ns .toString)]
         (->>
           (:sigs obj)
           (map-items (fn [k v]

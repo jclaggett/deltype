@@ -31,74 +31,41 @@
   [f m]
   (map-items (fn [k v] [k (f v)]) m))
 
-
 ;; monoid role code
 ;; This is a multimethod for defining the role of a method for a given interface
 ;; and method name.
-(defmulti monoid?
-  "Return true if named method is a monoid"
-  (fn [obj mname] obj))
+(defmulti monoid? "Return true if named method is a monoid" vector)
+(defmethod monoid? :default [obj mname] false)
+(defmethod monoid? [clojure.lang.Associative 'assoc] [_ _] true)
+(defmethod monoid? [clojure.lang.IObj 'withMeta] [_ _] true)
+(defmethod monoid? [clojure.lang.IPersistentCollection 'cons] [_ _] true)
+(defmethod monoid? [clojure.lang.IPersistentCollection 'empty] [_ _] true)
+(defmethod monoid? [clojure.lang.IPersistentMap 'assocEx] [_ _] true)
+(defmethod monoid? [clojure.lang.IPersistentMap 'assoc] [_ _] true)
+(defmethod monoid? [clojure.lang.IPersistentMap 'without] [_ _] true)
+(defmethod monoid? [clojure.lang.ITransientAssociative 'assoc] [_ _] true)
+(defmethod monoid? [clojure.lang.ITransientCollection 'conj] [_ _] true)
+(defmethod monoid? [clojure.lang.ITransientMap 'assoc] [_ _] true)
+(defmethod monoid? [clojure.lang.ITransientMap 'without] [_ _] true)
 
-(defmethod monoid? :default
-  [obj mname]
-  (when (class? obj)
-    (println "monoid? multimethod not specified for:"
-             obj "( method:" mname ")" ))
-  false)
+(defn monoid-preferences [mname & ifaces]
+  (reduce (fn [lower-ifaces iface]
+            (doseq [lower-iface lower-ifaces]
+              (prefer-method monoid? [iface mname]
+                             [lower-iface mname]))
+            (conj lower-ifaces iface))
+          []
+          (reverse ifaces)))
 
-(defmethod monoid? clojure.lang.IPersistentCollection
-  [_ mname] (contains? '#{cons empty} mname))
+(monoid-preferences 'assoc
+                    clojure.lang.Associative
+                    clojure.lang.ITransientAssociative
+                    clojure.lang.IPersistentMap
+                    clojure.lang.ITransientMap)
 
-(defmethod monoid? clojure.lang.Seqable
-  [_ mname] false)
-
-(defmethod monoid? clojure.lang.IObj
-  [_ mname] (contains? '#{withMeta} mname))
-
-(defmethod monoid? clojure.lang.Counted
-  [_ mname] false)
-
-(defmethod monoid? clojure.lang.ILookup
-  [_ mname] false)
-
-(defmethod monoid? clojure.lang.Associative
-  [_ mname] (contains? '#{assoc} mname))
-
-(defmethod monoid? clojure.lang.IPersistentMap
-  [_ mname] (contains? '#{assoc assocEx without} mname))
-
-(defmethod monoid? java.lang.Iterable
-  [_ mname] false)
-
-(defmethod monoid? java.util.concurrent.Callable
-  [_ mname] false)
-
-(defmethod monoid? java.util.Map
-  [_ mname] false)
-
-(defmethod monoid? clojure.lang.IHashEq
-  [_ mname] false)
-
-(defmethod monoid? clojure.lang.IMeta
-  [_ mname] false)
-
-(defmethod monoid? clojure.lang.IEditableCollection
-  [_ mname] false)
-
-(defmethod monoid? clojure.lang.IFn
-  [_ mname] false)
-
-(defmethod monoid? clojure.lang.ITransientMap
-  [_ mname] (contains? '#{assoc without} mname))
-
-(defmethod monoid? clojure.lang.ITransientCollection
-  [_ mname] (contains? '#{conj} mname))
-
-(defmethod monoid? clojure.lang.ITransientAssociative
-  [_ mname] (contains? '#{assoc} mname))
-
-(defmethod monoid? java.lang.Runnable
-  [_ mname] false)
+(monoid-preferences 'without
+                    clojure.lang.IPersistentMap
+                    clojure.lang.ITransientMap)
 
 ;; Parsing code for the deltype macro
 
@@ -139,24 +106,23 @@
   (->>
     (if (class? obj)
       (->>
-        (.getDeclaredMethods ^Class obj)
-        (map (juxt #(-> ^java.lang.reflect.Method % .getName symbol)
-                   #(-> ^java.lang.reflect.Method % .getParameterTypes count (take letters) vec)))
-        (reduce
-          (fn [m [mname arglist]]
-            (-> m
-              (update-in [mname :arglists] conj arglist)
-              (assoc-in [mname :name] mname)))
-          {}))
+       (.getMethods ^Class obj)
+       (map (juxt #(-> ^java.lang.reflect.Method % .getName symbol)
+                  #(-> ^java.lang.reflect.Method % .getParameterTypes count (take letters) vec)))
+       (reduce
+        (fn [m [name arglist]]
+          (-> m
+              (update-in [name :arglists] (fnil conj #{}) arglist)
+              (assoc-in [name :name] name)))
+        {}))
       (let [ns-str (-> obj ^clojure.lang.Var (:var) .ns .toString)]
         (->>
           (:sigs obj)
-          (map-items (fn [k v]
-                       [(symbol (name k))
-                        (assoc v
-                               :ns ns-str
-                               :arglists (map #(-> % rest vec rest)
-                                              (:arglists v)))])))))
+          (map-vals (fn [v]
+                      (assoc v
+                        :ns ns-str
+                        :arglists (map #(-> % rest vec)
+                                       (:arglists v))))))))
 
     ;; associate monoid status with methods
     (map-vals #(if (contains? % :monoid)
@@ -178,54 +144,49 @@
 
 (defn parse-delegates [delegates]
   (->>
-    (partition-all 2 delegates)
-    ;; expand all delegation 'types' into their interfaces and methods.
+    delegates
+    (partition-all 2)
+    ;; expand all delegation 'types' into their name and methods.
     (map (fn [[field iname]]
-           [field (map (juxt get-iname get-sigs)
-                       (get-ifaces (lookup iname)))]))))
-
-(defn get-inames
-  [delegates]
-  (for [[_ ifaces] delegates
-        [iname] ifaces]
-    iname))
+           (let [iface (lookup iname)]
+             [field (get-iname iface) (get-sigs iface)])))))
 
 (defn inject-inames [impls inames]
   (merge (zipmap inames (repeat [])) impls))
 
 (defn get-mspecs [delegates mnames]
   (->> delegates
-    ;; denormalize all needed delegate values into maps.
-    (mapcat (fn [[field ifaces]]
-              (for [[iname sigs] ifaces
-                    [mname msig] sigs]
-                (assoc (select-keys msig [:ns :monoid :arglists])
-                       :field field, :iname iname, :mname mname))))
-    ;; keep only distinct method delegates.
+    ;; Reverse so later delegates override earlier delegates.
+    reverse
+    ;; Denormalize all needed delegate values into maps.
+    (mapcat (fn [[field iname msigs]]
+              (for [sig (vals msigs)]
+                (assoc sig :field field, :iname iname))))
+    ;; Reduce method delegates to those not manually specified and so
+    ;; only one method spec remains (with possibly multiple inames).
     (reduce (fn [state v]
-              (if (contains? (:mnames state) (:mname v))
+              (if (or (contains? mnames (:name v))
+                      (contains? state (:name v)))
                 state
-                (-> state
-                    (update-in [:mnames] conj (:mname v))
-                    (update-in [:output] conj v))))
-            {:mnames mnames :output []})
-    :output))
+                (assoc state (:name v) v)))
+            {})
+    vals))
 
 (defn inject-methods [impls method-specs tname fields]
   (->>
     ;; emit delegation methods for all delegate maps
-    (for [{:keys [field mname iname iface monoid arglists ns]} method-specs
+   (for [{:keys [field name iname monoid arglists ns]} method-specs
           arglist arglists]
       (let [args (map gensym arglist)
             call (if ns
-                   (symbol ns (str mname))
-                   (symbol (str "." mname)))
-            body `(~call ~field ~@args)
+                   (symbol ns (str name))
+                   (symbol (str "." name)))
+            body `(~call ~(with-meta field {:tag iname}) ~@args)
             body (if monoid
                    `(~(symbol (str tname ".")) ~@(replace {field body}
                                                           fields))
                    body)]
-        [iname `(~mname [_# ~@args] ~body)]))
+        [iname `(~name [_# ~@args] ~body)]))
     ;; inject methods into impls
     (reduce (fn [impls [iname method]]
               (update-in impls [iname] conj method))
@@ -246,8 +207,8 @@
   Protocols are treated as interfaces.
 
   Example:
-  (deftype+ MyMap [sub-map]
-    :delegate [sub-map clojure.lang.PersistentHashMap] ;; act like a map
+  (deftype MyMap [sub-map]
+    :delegate [sub-map clojure.lang.IPersistentMap]
 
     clojure.lang.IPersistentMap
     ;; manually define just the assoc behavior
@@ -264,7 +225,7 @@
         mnames (parse-method-names specs)
         delegates (parse-delegates (:delegate opts))
         impls (parse-impls specs)
-        impls (inject-inames impls (get-inames delegates))
+        impls (inject-inames impls (map second delegates))
         impls (inject-methods impls
                               (get-mspecs delegates mnames)
                               tname fields)

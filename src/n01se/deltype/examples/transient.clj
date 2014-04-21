@@ -5,13 +5,14 @@
 
 (use 'clojure.repl)
 
-"Problem: defining a new type that delegates the transient method to a
- subfield will cause the new type to be 'lost' when transient returns
- a new transient value that doesn't know about the top level new
- type."
+"Problem: defining a new type that delegates to the transient method
+ (declared by IEditableCollection) to a sub-field will cause the new
+ type to be 'lost' when transient returns a new transient value that
+ doesn't know about the top level new type."
 
 (deltype NewMap [map-field]
-         :delegate [map-field clojure.lang.PersistentHashMap])
+         :delegate [map-field clojure.lang.IPersistentMap
+                    map-field clojure.lang.IEditableCollection])
 
 (-> (NewMap. {:q "initial-value"})
     empty
@@ -21,20 +22,23 @@
     (doto (-> class prn)) ;=> ArrayMap
     )
 
-"Solution 1: Unify peristent and transient methods into the new type.
- This means that the new type is maintained through all stages of the
- process."
+"Solution: define a single interface that extends both needed interfaces
+ and then explicitly define the interacting methods as monoidal."
 
-(deltype NewMap [map-field]
-  :delegate [map-field clojure.lang.PersistentHashMap
-             map-field clojure.lang.ITransientMap]
+;; Note that I can't use definterface since :extends are not supported
+;; by it so I must use gen-interface directly.
+(gen-interface :name n01se.deltype.examples.transient.INewMap
+               :extends [clojure.lang.IPersistentMap
+                         clojure.lang.IEditableCollection
+                         clojure.lang.ITransientMap
+                         clojure.lang.IObj    ;; IObj and IMeta are used
+                         clojure.lang.IMeta]) ;; by (into)
+(import n01se.deltype.examples.transient.INewMap)
 
-  ;; explicitly make these two methods monoidal.
-  clojure.lang.IEditableCollection
-  (asTransient [_] (NewMap. (.asTransient map-field)))
+(defmethod n01se.deltype/monoid? [INewMap 'asTransient] [_ _] true)
+(defmethod n01se.deltype/monoid? [INewMap  'persistent] [_ _] true)
 
-  clojure.lang.ITransientCollection
-  (persistent [_] (NewMap. (.persistent map-field))))
+(deltype NewMap [map-field] :delegate [map-field INewMap])
 
 (-> (NewMap. {:q "initial-value"})
     empty

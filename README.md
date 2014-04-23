@@ -1,7 +1,9 @@
 deltype
 =======
 
-Experiment with automatic delegations using Clojure's deftype (and reify)
+An experiment in automatic delegations and Clojure's deftype.
+
+The goal is to make it easy to define new data types that are based off of Clojure's standard persistent collections (i.e., maps, sets, lists, and vectors). The challenge is to do it without using traditional inheritence. The approach is to delegate method calls to a specific field of the new type.
 
 ## Usage
 

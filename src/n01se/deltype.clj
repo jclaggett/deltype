@@ -1,5 +1,8 @@
 (ns n01se.deltype
-  "Augmented deftype sporting a new :delegate option.")
+  "Augmented deftype sporting a new :delegate option."
+  (:refer-clojure :exclude [deftype]))
+
+(alias 'clj 'clojure.core)
 
 ;; Generic Code
 (def letters
@@ -31,41 +34,25 @@
   [f m]
   (map-items (fn [k v] [k (f v)]) m))
 
-;; monoid role code
-;; This is a multimethod for defining the role of a method for a given interface
-;; and method name.
-(defmulti monoid? "Return true if named method is a monoid" vector)
-(defmethod monoid? :default [obj mname] false)
-(defmethod monoid? [clojure.lang.Associative 'assoc] [_ _] true)
-(defmethod monoid? [clojure.lang.IObj 'withMeta] [_ _] true)
-(defmethod monoid? [clojure.lang.IPersistentCollection 'cons] [_ _] true)
-(defmethod monoid? [clojure.lang.IPersistentCollection 'empty] [_ _] true)
-(defmethod monoid? [clojure.lang.IPersistentMap 'assocEx] [_ _] true)
-(defmethod monoid? [clojure.lang.IPersistentMap 'assoc] [_ _] true)
-(defmethod monoid? [clojure.lang.IPersistentMap 'without] [_ _] true)
-(defmethod monoid? [clojure.lang.ITransientAssociative 'assoc] [_ _] true)
-(defmethod monoid? [clojure.lang.ITransientCollection 'conj] [_ _] true)
-(defmethod monoid? [clojure.lang.ITransientMap 'assoc] [_ _] true)
-(defmethod monoid? [clojure.lang.ITransientMap 'without] [_ _] true)
+(defn interface? [^Class c]
+  (.isInterface c))
 
-(defn monoid-preferences [mname & ifaces]
-  (reduce (fn [lower-ifaces iface]
-            (doseq [lower-iface lower-ifaces]
-              (prefer-method monoid? [iface mname]
-                             [lower-iface mname]))
-            (conj lower-ifaces iface))
-          []
-          (reverse ifaces)))
-
-(monoid-preferences 'assoc
-                    clojure.lang.Associative
-                    clojure.lang.ITransientAssociative
-                    clojure.lang.IPersistentMap
-                    clojure.lang.ITransientMap)
-
-(monoid-preferences 'without
-                    clojure.lang.IPersistentMap
-                    clojure.lang.ITransientMap)
+(defn get-ifaces [obj]
+  (if (class? obj)
+    (if (interface? obj)
+      [obj]
+      (->> (supers obj)
+           (filter interface?)
+           (reduce
+            (fn [ifaces iface]
+              (if-let [child (some #(when (isa? % iface) %) ifaces)]
+                ifaces
+                (conj
+                 (remove #(isa? iface %) ifaces)
+                 iface)))
+            nil)))
+    (when (map? obj) ;; assume it is a protocol
+      [obj])))
 
 ;; Parsing code for the deltype macro
 
@@ -78,29 +65,13 @@
     (map first)
     set))
 
-(defn use-proto [^Class c]
-  (let [[_ a b] (re-find #"(.*)[.]([^.]*)$"  (.getName c))
-        proto (some-> (symbol a b) resolve deref)]
-    (if (= c (:on-interface proto))
-      proto
-      c)))
-
-(defn interface? [^Class c]
-  (.isInterface c))
-
-(defn get-ifaces [obj]
-  (if (class? obj)
-    (if (interface? obj)
-      (->> (supers obj) (cons obj) (map use-proto))
-      (->> (supers obj) (filter interface?) (map use-proto)))
-    (when (map? obj) ;; assume it is a protocol
-      [obj])))
-
 (defn get-iname [obj]
   (if (class? obj)
     (symbol (.getName ^Class obj))
     (when (map? obj)
       (.sym ^clojure.lang.Var (:var obj)))))
+
+(declare updater?)
 
 (defn get-sigs [obj]
   (->>
@@ -124,23 +95,22 @@
                         :arglists (map #(-> % rest vec)
                                        (:arglists v))))))))
 
-    ;; associate monoid status with methods
-    (map-vals #(if (contains? % :monoid)
+    ;; associate updater status with methods
+    (map-vals #(if (contains? % :updater)
                  %
-                 (assoc % :monoid (monoid? obj (:name %)))))))
+                 (assoc % :updater (updater? obj (:name %)))))))
+
+(defn get-methods [iface]
+  (->>
+    (get-ifaces iface)
+    (map (juxt get-iname get-sigs))
+    (into {})))
 
 (defn lookup [x]
   (let [x (resolve x)]
     (if (var? x)
       (deref x)
       x)))
-
-
-(defn list-ifaces [iface]
-  (->>
-    (get-ifaces iface)
-    (map (juxt get-iname get-sigs))
-    (into {})))
 
 (defn parse-delegates [delegates]
   (->>
@@ -175,14 +145,14 @@
 (defn inject-methods [impls method-specs tname fields]
   (->>
     ;; emit delegation methods for all delegate maps
-   (for [{:keys [field name iname monoid arglists ns]} method-specs
+   (for [{:keys [field name iname updater arglists ns]} method-specs
           arglist arglists]
       (let [args (map gensym arglist)
             call (if ns
                    (symbol ns (str name))
                    (symbol (str "." name)))
             body `(~call ~(with-meta field {:tag iname}) ~@args)
-            body (if monoid
+            body (if updater
                    `(~(symbol (str tname ".")) ~@(replace {field body}
                                                           fields))
                    body)]
@@ -192,19 +162,19 @@
               (update-in impls [iname] conj method))
             impls)))
 
-(defmacro deltype
-  "Built on top of clojure's standard deftype and is the same in every way
-  except for the new :delegate option.
+(defmacro deftype
+  "Built on top of clojure's standard deftype and is the same in every
+  way except for the new :delegate option.
 
-  The :delegate option takes as a value a vector of pairs of field names to
-  class/interface/protocol names. Each field name must also appear in the type's
-  overall field vector. field name's can be repeated and so associated with
-  multiple class/interface/procotols.
+  The :delegate option takes as a value a vector of pairs of field
+  names to interface/protocol names. Each field name must also appear
+  in the type's overall field vector. field name's can be repeated and
+  so associated with multiple interface/procotols.
 
-  Each delegate class or interface specified will expand to all methods needed
-  to implement the interface(s). When a class is specified, it is used as
-  a bundle of all the interfaces that it and its super classes implements.
-  Protocols are treated as interfaces.
+  Each specified delegate interface will expand to the methods needed
+  to implement the interface. These methods are either simple
+  delegators or 'updater' delgators. The updater? multimethod controls
+  which type of delegator should be used.
 
   Example:
   (deftype MyMap [sub-map]
@@ -231,4 +201,152 @@
                               tname fields)
         specs (mapcat #(cons (first %) (second %)) impls)
         opts (mapcat identity (dissoc opts :delegate))]
-    `(deftype ~tname ~fields ~@opts ~@specs)))
+    `(clj/deftype ~tname ~fields ~@opts ~@specs)))
+
+;; Updater multi-method
+;; This is a multimethod for specifying if a method on a class is an
+;; 'updater'. Specifically, any method that returns a new instance of
+;; the class it is attached to is probably an 'updater'.
+(defmulti updater? "Return true if named method returns a new copy of 'this'." vector)
+(defmethod updater? :default [obj mname] false)
+
+;; Updater? definitions for Clojure's builtin collections.
+(defmethod updater? [clojure.lang.Associative 'assoc] [_ _] true)
+(defmethod updater? [clojure.lang.IObj 'withMeta] [_ _] true)
+(defmethod updater? [clojure.lang.IPersistentCollection 'cons] [_ _] true)
+(defmethod updater? [clojure.lang.IPersistentCollection 'empty] [_ _] true)
+(defmethod updater? [clojure.lang.IPersistentMap 'assocEx] [_ _] true)
+(defmethod updater? [clojure.lang.IPersistentMap 'assoc] [_ _] true)
+(defmethod updater? [clojure.lang.IPersistentMap 'without] [_ _] true)
+(defmethod updater? [clojure.lang.IPersistentList 'pop] [_ _] true)
+(defmethod updater? [clojure.lang.IPersistentSet 'disjoin] [_ _] true)
+(defmethod updater? [clojure.lang.IPersistentVector 'pop] [_ _] true)
+(defmethod updater? [clojure.lang.IPersistentVector 'assocN] [_ _] true)
+(defmethod updater? [clojure.lang.ITransientAssociative 'assoc] [_ _] true)
+(defmethod updater? [clojure.lang.ITransientCollection 'conj] [_ _] true)
+(defmethod updater? [clojure.lang.ITransientMap 'assoc] [_ _] true)
+(defmethod updater? [clojure.lang.ITransientMap 'without] [_ _] true)
+(defmethod updater? [clojure.lang.ITransientSet 'conj] [_ _] true)
+(defmethod updater? [clojure.lang.ITransientSet 'disjoin] [_ _] true)
+(defmethod updater? [clojure.lang.ITransientVector 'pop] [_ _] true)
+(defmethod updater? [clojure.lang.ITransientVector 'assocN] [_ _] true)
+
+(defn updater-rank [mname & ifaces]
+  (->> ifaces
+       reverse
+       (reduce (fn [lower-ifaces iface]
+                 (doseq [lower-iface lower-ifaces]
+                   (prefer-method updater? [iface mname]
+                                  [lower-iface mname]))
+                 (conj lower-ifaces iface))
+               [])))
+
+(updater-rank 'assoc
+              clojure.lang.Associative
+              clojure.lang.ITransientAssociative
+              clojure.lang.IPersistentMap
+              clojure.lang.ITransientMap)
+
+(updater-rank 'without
+              clojure.lang.IPersistentMap
+              clojure.lang.ITransientMap)
+
+(updater-rank 'disjoin
+              clojure.lang.IPersistentSet
+              clojure.lang.ITransientSet)
+
+(updater-rank 'pop
+              clojure.lang.IPersistentList
+              clojure.lang.IPersistentVector
+              clojure.lang.ITransientVector)
+
+(updater-rank 'assocN
+              clojure.lang.IPersistentVector
+              clojure.lang.ITransientVector)
+
+;; Convenience interfaces that combine the standard interfaces into a
+;; single interface to be used to mimic standard datatypes.
+(defmacro defextender
+  "Macro similar to definterface except that this one supports
+  extending (and only extending) other interfaces."
+  [name & ifaces]
+  (let [cname (with-meta (symbol (str (namespace-munge *ns*) "." name)) (meta name))]
+    `(let []
+       (gen-interface :name ~cname :extends [~@(map resolve ifaces)])
+       (import ~cname))))
+
+;; Clojure Map related interfaces
+
+(defextender IMap
+  clojure.lang.IFn
+  clojure.lang.IHashEq
+  clojure.lang.IObj
+  clojure.lang.IPersistentMap
+  clojure.lang.MapEquivalence
+  java.io.Serializable
+  java.lang.Iterable
+  java.util.Map)
+
+(defextender IEditableMap
+  IMap
+  clojure.lang.IEditableCollection
+  clojure.lang.ITransientMap)
+
+;; Since IEditableMap merges persistent and transient methods into a
+;; single interface, the methods that convert from one to the other
+;; are now updaters.
+(defmethod updater? [IEditableMap 'asTransient] [_ _] true)
+(defmethod updater? [IEditableMap 'persistent] [_ _] true)
+
+;; Clojure Set related interfaces
+
+(defextender ISet
+  clojure.lang.IFn
+  clojure.lang.IHashEq
+  clojure.lang.IObj
+  clojure.lang.IPersistentSet
+  java.io.Serializable
+  java.util.Set)
+
+(defextender IEditableSet
+  ISet
+  clojure.lang.IEditableCollection
+  clojure.lang.ITransientSet)
+
+(defmethod updater? [IEditableSet 'asTransient] [_ _] true)
+(defmethod updater? [IEditableSet 'persistent] [_ _] true)
+
+;; Clojure List interface
+
+(defextender IList
+  clojure.lang.Counted
+  clojure.lang.IHashEq
+  clojure.lang.IObj
+  clojure.lang.IPersistentList
+  clojure.lang.IReduce
+  clojure.lang.ISeq
+  java.io.Serializable
+  ;; I need to handle (.remove _ ^int n) and (.remove _ ^Object o)
+  ;; java.util.List
+  )
+
+;; Clojure Vector interfaces
+
+(defextender IVector
+  clojure.lang.IFn
+  clojure.lang.IHashEq
+  clojure.lang.IObj
+  clojure.lang.IPersistentVector
+  java.io.Serializable
+  java.lang.Comparable
+  ;; I need to handle (.remove _ ^int n) and (.remove _ ^Object o)
+  ;; java.util.List
+  java.util.RandomAccess)
+
+(defextender IEditableVector
+  IVector
+  clojure.lang.IEditableCollection
+  clojure.lang.ITransientVector)
+
+(defmethod updater? [IEditableVector 'asTransient] [_ _] true)
+(defmethod updater? [IEditableVector 'persistent] [_ _] true)

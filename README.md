@@ -20,5 +20,5 @@ The goal is to make it easy to define new data types that are based off of Cloju
 ```
 
 ## Links
-http://raganwald.com/2014/03/31/class-hierarchies-dont-do-that.html
-http://www.javaworld.com/article/2073649/core-java/why-extends-is-evil.html
+* http://raganwald.com/2014/03/31/class-hierarchies-dont-do-that.html
+* http://www.javaworld.com/article/2073649/core-java/why-extends-is-evil.html

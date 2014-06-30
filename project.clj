@@ -1,4 +1,4 @@
-(defproject n01se/deltype "0.0.1"
+(defproject n01se/deltype "0.0.2"
             :description "Delegation support in deftype and reify. This is an
                          experimental augmentation to support automatic
                          delegation to specified fields with a specified

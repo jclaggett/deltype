@@ -142,7 +142,7 @@
             {})
     vals))
 
-(defn inject-methods [impls method-specs tname fields]
+(defn inject-methods [impls method-specs tname fields debug?]
   (->>
     ;; emit delegation methods for all delegate maps
    (for [{:keys [field name iname updater arglists ns]} method-specs
@@ -155,8 +155,11 @@
             body (if updater
                    `(~(symbol (str tname ".")) ~@(replace {field body}
                                                           fields))
-                   body)]
-        [iname `(~name [_# ~@args] ~body)]))
+                   body)
+            debug (when debug?
+                    `[(prn (list '~name ~@args))])]
+        [iname `(~name [_# ~@args] ~@debug ~body)]))
+
     ;; inject methods into impls
     (reduce (fn [impls [iname method]]
               (update-in impls [iname] conj method))
@@ -198,9 +201,10 @@
         impls (inject-inames impls (map second delegates))
         impls (inject-methods impls
                               (get-mspecs delegates mnames)
-                              tname fields)
+                              tname fields
+                              (:debug opts))
         specs (mapcat #(cons (first %) (second %)) impls)
-        opts (mapcat identity (dissoc opts :delegate))]
+        opts (mapcat identity (dissoc opts :delegate :debug))]
     `(clj/deftype ~tname ~fields ~@opts ~@specs)))
 
 ;; Updater multi-method
